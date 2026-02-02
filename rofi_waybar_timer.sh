@@ -1,32 +1,40 @@
 #!/usr/bin/env bash
 
-timer_file=/tmp/waybar_timer
-timer_paused=/tmp/timer_paused
+# allows optional decimal, m/min units, & whitespace
+regex='^[[:space:]]*([0-9]*\.?[0-9]+)([[:space:]]*(min|m))?[[:space:]]*$'
+
+TIMER_FILE=/tmp/waybar_timer
+TIMER_PAUSED=/tmp/timer_paused
+
+cleanup_timer_file() {
+	# how long before the timer dissappears from waybar
+	sleep 5 && rm -f "$TIMER_FILE"
+}
+
+kill_running_timers() {
+	OTHER_PIDS=$(pgrep -f "$(basename "$0")" | grep -v "^$$$")
+	if [ -n "$OTHER_PIDS" ]; then
+		echo "$OTHER_PIDS" | xargs kill
+	fi
+}
 
 # waybar get timer
 if [[ $1 == "get" ]]; then
-	if [[ -f $timer_file ]]; then
-		content=$(cat $timer_file)
-		# printf json for waybar
-		if [[ -f "$timer_paused" ]]; then
-			printf '{"text": "%s", "alt": "paused", "class": "paused"}\n' "$content"
-		else
-			printf '{"text": "%s", "alt": "active", "class": "active"}\n' "$content"
-		fi
-	else
-		echo '{"text": "", "class": "stopped"}'
-	fi
+	[[ ! -f $TIMER_FILE ]] && echo '{"text": "", "class": "stopped"}' && exit 0
+
+	content=$(<"$TIMER_FILE")
+	status="active"
+	[[ -f "$TIMER_PAUSED" ]] && status="paused"
+	printf '{"text": "%s", "alt": "%s", "class": "%s"}\n' "$content" "$status" "$status"
 	exit 0
 fi
 
 # waybar pause/resume on-click
-if [[ $1 == "toggle" ]]; then
-	if [[ -f $timer_file ]]; then
-		if [[ -f $timer_paused ]]; then
-			rm "$timer_paused"
-		else
-			touch "$timer_paused"
-		fi
+if [[ $1 == "toggle" && -f $TIMER_FILE ]]; then
+	if [[ -f $TIMER_PAUSED ]]; then
+		rm "$TIMER_PAUSED"
+	else
+		touch "$TIMER_PAUSED"
 	fi
 	exit 0
 fi
@@ -37,87 +45,71 @@ start_timer() {
 	current_time=$(date +%s)
 	end_time=$(( current_time + duration_sec ))
 
-	rm -f $timer_paused
-	touch $timer_file
+	rm -f $TIMER_PAUSED
+	touch $TIMER_FILE
 
-	while [[ -f $timer_file ]]; do
+	while [[ -f $TIMER_FILE ]]; do
 		local current_time remaining_sec formatted_time
 		current_time=$(date +%s)
 		remaining_sec=$(( end_time - current_time ))
 
-		if [[ -f $timer_paused ]]; then
-			# Add a second to paused time each second to maintain duration
+		# Add a second to paused time each second to maintain duration
+		if [[ -f "$TIMER_PAUSED" ]]; then
 			((end_time++))
-		else
-			if [ $remaining_sec -le 0 ]; then
-				break
-			fi
+		elif (( remaining_sec <= 0 )); then
+			break
 		fi
 
 		# format MM:SS
 		formatted_time=$(printf "%02d:%02d" $((remaining_sec/60)) $((remaining_sec%60)))
-		echo $formatted_time > $timer_file
+		echo "$formatted_time" > $TIMER_FILE
 		sleep 1
 	done
 
-	if [[ -f $timer_file ]]; then
-		echo "Done" > $timer_file
-		notify-send "Time is up!" "Go do the thing you were supposed to do." -i alarm-clock -u critical
+	if [[ -f $TIMER_FILE ]]; then
+		echo "Done" > $TIMER_FILE
+		handle_timer_finished
+		notify-send "Time is up!" "Go do the thing you were supposed to do." -u critical
+	fi
+}
 
-		done_popup=$(rofi -dmenu -i -no-fixed-num-lines \
-			-theme-str 'window {width: 20%; }' \
-			-p "Timer Finished!" <<-EOF
-				Done
-				Snooze 5 min
-			EOF
-		)
+handle_timer_finished() {
+	local done_popup minutes
 
-		case $done_popup in
-			"Snooze 5 min")
-				start_timer 5
-				;;
+	done_popup=$(rofi -dmenu -i -no-fixed-num-lines \
+		-theme-str 'window {width: 20%; }' \
+		-p "Timer Finished!" <<-EOF
+			Done
+			Snooze 5 min
+		EOF
+	)
 
-			"Done")
-				sleep 5
-				rm $timer_file
-				;;
+	case "$done_popup" in
+		"Snooze 5 min")
+			start_timer 5
+			return
+			;;
+		"Done"|"")
+			cleanup_timer_file
+			return
+			;;
+	esac
 
-			"")
-				sleep 5
-				rm $timer_file
-				;;
-
-			*)
-				if [[ $done_popup =~ ^([0-9]*\.?[0-9]+)([[:space:]?]*min|m)?$ ]]; then
-					# Find and kill any existing timer processes so they stop writing to the file
-					OTHER_PIDS=$(pgrep -f "$(basename "$0")" | grep -v "^$$$")
-					if [ -n "$OTHER_PIDS" ]; then
-						echo "$OTHER_PIDS" | xargs kill
-					fi
-
-					minutes=${BASH_REMATCH[1]}
-					notify-send "Timer Started" "$minutes min" -i alarm-clock -u normal
-					start_timer $minutes
-					exit 0
-				else
-					notify-send "Input Error" -u critical
-					sleep 5
-					rm $timer_file
-					exit 1
-				fi
-				;;
-		esac
+if [[ $done_popup =~ $regex ]]; then
+		minutes=${BASH_REMATCH[1]}
+		kill_running_timers
+		start_timer "$minutes" &
+		notify-send "Timer Snoozed" "$minutes min" -u normal
+		return
+	else
+		cleanup_timer_file && notify-send "Input Error" -u critical
 	fi
 }
 
 pause_option="Pause"
-if [[ -f $timer_paused ]]; then
-	pause_option="Resume"
-else
-	pause_option="Pause"
-fi
+[[ -f $TIMER_PAUSED ]] && pause_option="Resume" || pause_option="Pause"
 
-# NOTE: Auto selects from results if part of input matches string, need to type m after for custom time
+# NOTE: will auto select from the options if part of the input matches string
 input=$(rofi -dmenu -i -no-fixed-num-lines \
   -theme-str 'window {width: 20%; }' \
   -p "Timer:" <<-EOF
@@ -129,41 +121,31 @@ input=$(rofi -dmenu -i -no-fixed-num-lines \
 )
 
 case $input in
-	$pause_option)
-		if [[ -f $timer_paused ]]; then
-			rm $timer_paused
-			notify-send "Timer Resumed" -i alarm-clock -u normal
+	"$pause_option")
+		if [[ -f $TIMER_PAUSED ]]; then
+			rm $TIMER_PAUSED && notify-send "Timer Resumed" -u normal
 		else
-			touch $timer_paused
-			notify-send "Timer Paused" -i alarm-clock -u normal
+			touch $TIMER_PAUSED && notify-send "Timer Paused" -u normal
 		fi
 		exit 0
 		;;
 
 	"Cancel Timer")
-		rm $timer_file
-		notify-send "Timer Cancelled" -i alarm-clock -u normal
+		rm $TIMER_FILE && notify-send "Timer Cancelled" -u normal
 		exit 0
 		;;
 
 	"")
 		exit 0
 		;;
-
-	*)
-		if [[ $input =~ ^([0-9]*\.?[0-9]+)([[:space:]?]*min|m)?$ ]]; then
-			# Find and kill any existing timer processes so they stop writing to the file
-			OTHER_PIDS=$(pgrep -f "$(basename "$0")" | grep -v "^$$$")
-			if [ -n "$OTHER_PIDS" ]; then
-				echo "$OTHER_PIDS" | xargs kill
-			fi
-
-			minutes=${BASH_REMATCH[1]}
-			notify-send "Timer Started" "$minutes min" -i alarm-clock -u normal
-			start_timer $minutes
-			exit 0
-		else
-			notify-send "Input Error" -u critical
-			exit 1
-		fi
 esac
+
+if [[ $input =~ $regex ]]; then
+	minutes=${BASH_REMATCH[1]}
+	kill_running_timers
+	start_timer "$minutes" &
+	notify-send "Timer Started" "$minutes min" -u normal
+	exit 0
+else
+	notify-send "Input Error" -u critical
+fi
