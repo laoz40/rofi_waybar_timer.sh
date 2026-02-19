@@ -8,7 +8,7 @@ TIMER_PAUSED=/tmp/timer_paused
 
 cleanup_timer_file() {
 	# how long before the timer dissappears from waybar
-	sleep 5 && rm -f "$TIMER_FILE"
+	sleep 10 && rm -f "$TIMER_FILE"
 }
 
 # Stop other instances of this script while keeping the current process alive.
