@@ -70,7 +70,7 @@ start_timer() {
 
 	if [[ -f $TIMER_FILE ]]; then
 		echo "Done" > $TIMER_FILE
-		handle_timer_finished
+		handle_timer_finished &
 		notify-send "Time is up!" "Go do the thing you were supposed to do." -u critical
 	fi
 }
