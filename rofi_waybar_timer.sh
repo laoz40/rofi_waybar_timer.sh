@@ -88,8 +88,7 @@ handle_timer_finished() {
 
 	case "$done_popup" in
 		"Snooze 5 min")
-			start_timer 5
-			return
+			minutes=5
 			;;
 		"Done"|"")
 			cleanup_timer_file
@@ -98,12 +97,14 @@ handle_timer_finished() {
 	esac
 	if [[ $done_popup =~ $regex ]]; then
 		minutes=${BASH_REMATCH[1]}
-		start_timer "$minutes" &
-		notify-send "Timer Snoozed" "$minutes min" -u normal
-		return
 	else
 		cleanup_timer_file && notify-send "Input Error" -u critical
+		return
 	fi
+
+	start_timer "$minutes" &
+	notify-send "Timer Snoozed" "$minutes min" -u normal
+	return
 }
 
 pause_option="Pause"
