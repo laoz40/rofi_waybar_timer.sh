@@ -21,15 +21,16 @@ Features:
 
 ```json
   "custom/timer": {
-    "exec": "~/.local/bin/rofi_waybar_timer.sh get",
-    "on-click": "~/.local/bin/rofi_waybar_timer.sh toggle",
+    "exec": "~/.local/bin/rofi_waybar_timer.sh waybar_fetch",
+    "on-click": "~/.local/bin/rofi_waybar_timer.sh waybar_toggle",
+    "on-click-right": "~/.local/bin/rofi_waybar_timer.sh",
     "return-type": "json",
     "interval": 1,
     "format": "{icon}{text}",
     "format-icons": {
       "active": " ",
-      "paused": "󰏤 ",
-    },
+      "paused": "󰏤 "
+    }
   },
 ```
 
