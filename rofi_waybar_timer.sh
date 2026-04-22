@@ -94,13 +94,16 @@ handle_timer_finished() {
 			cleanup_timer_file
 			return
 			;;
+		*)
+			if [[ $done_popup =~ $regex ]]; then
+				minutes=${BASH_REMATCH[1]}
+			else
+				cleanup_timer_file
+				notify-send "Input Error" -u critical
+				return
+			fi
+			;;
 	esac
-	if [[ $done_popup =~ $regex ]]; then
-		minutes=${BASH_REMATCH[1]}
-	else
-		cleanup_timer_file && notify-send "Input Error" -u critical
-		return
-	fi
 
 	start_timer "$minutes" &
 	notify-send "Timer Snoozed" "$minutes min" -u normal
